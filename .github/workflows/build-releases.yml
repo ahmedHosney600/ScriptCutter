@@ -1,0 +1,82 @@
+name: Build Releases
+
+on:
+  push:
+    tags:
+      - 'v*'  # Trigger on version tags (e.g., v1.0.0)
+  workflow_dispatch: # Allow manual trigger from the GitHub Actions tab
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Download FFmpeg binaries
+        run: |
+          mkdir bin
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            curl -L -o ffmpeg.tar.xz https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz
+            tar xvf ffmpeg.tar.xz
+            cp ffmpeg-*-static/ffmpeg bin/
+            cp ffmpeg-*-static/ffprobe bin/
+            chmod +x bin/ffmpeg bin/ffprobe
+          elif [ "${{ runner.os }}" = "macOS" ]; then
+            curl -L -o ffmpeg.zip https://evermeet.cx/ffmpeg/getrelease/zip
+            unzip ffmpeg.zip -d bin/
+            curl -L -o ffprobe.zip https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip
+            unzip ffprobe.zip -d bin/
+            chmod +x bin/ffmpeg bin/ffprobe
+          elif [ "${{ runner.os }}" = "Windows" ]; then
+            curl -L -o ffmpeg.zip https://github.com/GyanD/codexffmpeg/releases/download/7.0.1/ffmpeg-7.0.1-essentials_build.zip
+            unzip ffmpeg.zip
+            cp ffmpeg-7.0.1-essentials_build/bin/ffmpeg.exe bin/
+            cp ffmpeg-7.0.1-essentials_build/bin/ffprobe.exe bin/
+          fi
+        shell: bash
+
+      - name: Build Executable
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            pyinstaller --name ScriptCutter --windowed --add-binary "bin/*;bin" --onedir main.py
+          else
+            pyinstaller --name ScriptCutter --windowed --add-binary "bin/*:bin" --onedir main.py
+          fi
+        shell: bash
+
+      - name: Package Windows and Linux
+        if: runner.os != 'macOS'
+        run: |
+          cd dist
+          zip -r ../ScriptCutter-${{ matrix.os }}.zip ScriptCutter
+        shell: bash
+
+      - name: Package macOS
+        if: runner.os == 'macOS'
+        run: |
+          cd dist
+          zip -r ../ScriptCutter-${{ matrix.os }}.zip ScriptCutter.app
+        shell: bash
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: ScriptCutter-${{ matrix.os }}.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
