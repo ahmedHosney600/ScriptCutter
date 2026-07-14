@@ -4,11 +4,11 @@ from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                                QSplitter, QTextEdit, QPushButton, QLabel, QListWidget,
                                QFileDialog, QMessageBox, QTabWidget, QInputDialog)
 from PySide6.QtCore import Qt, QTimer, QUrl, QThread, Signal
-from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtGui import QKeySequence, QShortcut, QColor, QTextCharFormat, QTextCursor
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PySide6.QtMultimediaWidgets import QVideoWidget
 
-from core.parser import parse_script
+from core.parser import parse_script, parse_script_with_spans
 from ui.settings_modal import SettingsModal
 from utils.file_manager import load_settings, parse_subtitle_file
 from ui.timeline_widget import TimelineWidget
@@ -46,6 +46,7 @@ class MainWindow(QMainWindow):
         # --- NEW: Memory Cache for Clip Edits ---
         self.clip_bounds_cache = {}
         self.clip_names_cache = {} # Map of clip_id -> custom_name
+        self.script_clip_spans = {} # Map of script clip id -> (start, end)
         self.current_active_clip_id = None
         self.preview_mode = False
         self.undo_stack = []
@@ -57,8 +58,8 @@ class MainWindow(QMainWindow):
 
         # --- Top Menu / Action Bar ---
         action_bar = QHBoxLayout()
-        self.import_btn = QPushButton("📁 Import Media")
-        self.import_btn.clicked.connect(self.import_media_files)
+        self.import_video_btn = QPushButton("🎬 Import Video")
+        self.import_video_btn.clicked.connect(self.import_video)
         self.settings_btn = QPushButton("⚙️ Settings")
         self.settings_btn.clicked.connect(self.open_settings)
         self.export_btn = QPushButton("✂️ Export Current Clip")
@@ -66,7 +67,7 @@ class MainWindow(QMainWindow):
         self.batch_export_btn = QPushButton("🚀 Batch Export All")
         self.batch_export_btn.clicked.connect(self.batch_export_all) 
         
-        action_bar.addWidget(self.import_btn)
+        action_bar.addWidget(self.import_video_btn)
         action_bar.addStretch() 
         action_bar.addWidget(self.settings_btn)
         action_bar.addWidget(self.export_btn)
@@ -88,13 +89,26 @@ class MainWindow(QMainWindow):
         script_layout = QVBoxLayout(self.script_tab)
         script_layout.setContentsMargins(0, 0, 0, 0)
         
-        script_layout.addWidget(QLabel("<b>Script Importer</b> (Wrap clips in \"\"\")"))
+        script_top_layout = QHBoxLayout()
+        script_top_layout.addWidget(QLabel("<b>Script Importer</b> (Wrap clips in \"\"\")"))
+        
+        self.import_sub_btn = QPushButton("📝 Import Subtitles")
+        self.import_sub_btn.clicked.connect(self.import_subtitle)
+        script_top_layout.addWidget(self.import_sub_btn)
+        
+        script_layout.addLayout(script_top_layout)
+        
         self.script_input = QTextEdit()
         self.script_input.setPlaceholderText('"""Paste your script segments here..."""')
+        self.last_generated_text = ""
+        self.script_input.textChanged.connect(self.check_script_changes)
         script_layout.addWidget(self.script_input)
 
         self.generate_btn = QPushButton("Generate Clips")
         self.generate_btn.setMinimumHeight(40)
+        self.generate_btn.setEnabled(False) # Disabled initially
+        self.generate_btn.setText("Clips Generated - Up to date")
+        self.generate_btn.setStyleSheet("color: gray;")
         self.generate_btn.clicked.connect(self.process_script)
         script_layout.addWidget(self.generate_btn)
 
@@ -260,11 +274,50 @@ class MainWindow(QMainWindow):
                 del self.clip_bounds_cache[clip_id]
             if self.current_active_clip_id == clip_id:
                 self.current_active_clip_id = None
+    def clear_script_highlight(self):
+        self.script_input.setExtraSelections([])
+
+    def highlight_script_clip(self, clip_id):
+        self.clear_script_highlight()
+        if clip_id in self.script_clip_spans:
+            start, end = self.script_clip_spans[clip_id]
+            cursor = self.script_input.textCursor()
+            # Position at end first, then anchor to start so the cursor ends up at the start position.
+            cursor.setPosition(end)
+            cursor.setPosition(start, QTextCursor.KeepAnchor)
+            
+            selection = QTextEdit.ExtraSelection()
+            selection.cursor = cursor
+            
+            format = QTextCharFormat()
+            format.setBackground(QColor("yellow"))
+            format.setForeground(QColor("black"))
+            selection.format = format
+            
+            self.script_input.setExtraSelections([selection])
+            self.script_input.setTextCursor(cursor)
+
+    def check_script_changes(self):
+        current_text = self.script_input.toPlainText()
+        if current_text != self.last_generated_text:
+            self.generate_btn.setEnabled(True)
+            self.generate_btn.setText("Generate Clips")
+            self.generate_btn.setStyleSheet("")
+        else:
+            self.generate_btn.setEnabled(False)
+            self.generate_btn.setText("Clips Generated - Up to date")
+            self.generate_btn.setStyleSheet("color: gray;")
+
     def process_script(self):
         raw_text = self.script_input.toPlainText()
-        clips = parse_script(raw_text)
+        self.last_generated_text = raw_text
+        self.check_script_changes()
+        
+        clips_with_spans = parse_script_with_spans(raw_text)
         
         self.script_clip_list.clear()
+        self.script_clip_spans.clear()
+        self.clear_script_highlight()
         
         # Clear ONLY script bounds from cache
         keys_to_remove = [k for k in self.clip_bounds_cache.keys() if str(k).startswith("script_")]
@@ -274,8 +327,8 @@ class MainWindow(QMainWindow):
         if self.current_active_clip_id and str(self.current_active_clip_id).startswith("script_"):
             self.current_active_clip_id = None
         
-        if clips:
-            for i, clip_text in enumerate(clips):
+        if clips_with_spans:
+            for i, (clip_text, span_start, span_end) in enumerate(clips_with_spans):
                 # Calculate bounds using the FULL text, before we truncate it for UI display!
                 full_clean_text = clip_text.replace('\n', ' ').strip()
                 start_time, end_time = find_precise_clip_boundaries(full_clean_text, self.current_subtitles)
@@ -283,6 +336,7 @@ class MainWindow(QMainWindow):
                 # Pre-populate the cache so load_clip_to_timeline doesn't have to guess
                 clip_id = f"script_{i}"
                 self.clip_bounds_cache[clip_id] = {"start": start_time, "end": end_time}
+                self.script_clip_spans[clip_id] = (span_start, span_end)
                 
                 # Now truncate just for the UI
                 display_text = full_clean_text
@@ -379,27 +433,48 @@ class MainWindow(QMainWindow):
             
         bounds = self.clip_bounds_cache[clip_id]
         self.timeline_view.set_clip_bounds(bounds["start"], bounds["end"])
+        
+        if clip_id.startswith("script_"):
+            self.highlight_script_clip(clip_id)
+            
         self.setFocus()
 
-    def import_media_files(self):
+    def import_video(self):
         video_path, _ = QFileDialog.getOpenFileName(self, "Select Video File", "", "Video Files (*.mp4 *.mkv *.mov)")
         if not video_path: return
-        sub_path, _ = QFileDialog.getOpenFileName(self, "Select Subtitle File", "", "Subtitle Files (*.srt *.vtt)")
-        if not sub_path: return
 
         self.current_video_path = video_path
-        self.current_subtitles = parse_subtitle_file(sub_path)
         self.media_player.setSource(QUrl.fromLocalFile(video_path))
         
         # Clear cache in case they loaded a new video with existing clips
         self.clip_bounds_cache.clear()
         
-        file_name = video_path.split("/")[-1]
+        file_name = os.path.basename(video_path)
         self.status_label.setText(f"Loading waveform for: {file_name}...")
+        
+        display_name = file_name if len(file_name) <= 15 else file_name[:12] + "..."
+        full_status = f"✅ Video: {file_name}"
+        
+        self.import_video_btn.setText(f"✅ Video: {display_name}")
+        self.import_video_btn.setToolTip(full_status)
+        self.import_video_btn.setStyleSheet("background-color: #2e7d32; color: white;")
         
         self.waveform_worker = WaveformWorker(self.current_video_path)
         self.waveform_worker.finished.connect(self.on_waveform_ready)
         self.waveform_worker.start()
+
+    def import_subtitle(self):
+        sub_path, _ = QFileDialog.getOpenFileName(self, "Select Subtitle File", "", "Subtitle Files (*.srt *.vtt)")
+        if not sub_path: return
+        
+        self.current_subtitles = parse_subtitle_file(sub_path)
+        file_name = os.path.basename(sub_path)
+        display_name = file_name if len(file_name) <= 15 else file_name[:12] + "..."
+        full_status = f"✅ Subtitles: {file_name}"
+        
+        self.import_sub_btn.setText(f"✅ Subtitles: {display_name}")
+        self.import_sub_btn.setToolTip(full_status)
+        self.import_sub_btn.setStyleSheet("background-color: #2e7d32; color: white;")
 
     def on_waveform_ready(self, peaks):
         duration = self.current_subtitles[-1]['end'] if self.current_subtitles else 100
