@@ -2,7 +2,6 @@ import subprocess
 import wave
 import os
 import struct
-from utils.binary_resolver import get_ffmpeg_path
 
 def generate_waveform_data(video_path, num_peaks=5000):
     """
@@ -13,7 +12,7 @@ def generate_waveform_data(video_path, num_peaks=5000):
     
     # 1. Use FFmpeg to create a lightweight, mono, low-sample-rate WAV file
     command = [
-        get_ffmpeg_path(), "-y", "-i", video_path, 
+        "ffmpeg", "-y", "-i", video_path, 
         "-vn",          # No video
         "-ac", "1",     # Mono channel
         "-ar", "8000",  # Low sample rate (faster processing)

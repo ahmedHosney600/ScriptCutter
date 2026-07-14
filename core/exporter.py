@@ -1,11 +1,10 @@
 import subprocess
 import os
-from utils.binary_resolver import get_ffmpeg_path, get_ffprobe_path
 
 def get_audio_extension(video_path):
     try:
         command = [
-            get_ffprobe_path(), "-v", "error", 
+            "ffprobe", "-v", "error", 
             "-select_streams", "a:0", 
             "-show_entries", "stream=codec_name", 
             "-of", "default=noprint_wrappers=1:nokey=1", 
@@ -36,7 +35,7 @@ def export_clip(video_path, start_time, end_time, output_dir, clip_name, mode, f
     duration = end_time - start_time
     
     command = [
-        get_ffmpeg_path(), "-y",             
+        "ffmpeg", "-y",             
         "-ss", str(start_time),     
         "-i", video_path,           
         "-t", str(duration)         

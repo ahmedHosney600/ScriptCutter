@@ -15,7 +15,15 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            zip_suffix: linux
+          - os: windows-latest
+            zip_suffix: win32
+          - os: macos-13
+            zip_suffix: darwin
+          - os: macos-14
+            zip_suffix: darwin_arm64
     
     steps:
       - name: Checkout repository
@@ -30,36 +38,8 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Download FFmpeg binaries
-        run: |
-          mkdir bin
-          if [ "${{ runner.os }}" = "Linux" ]; then
-            curl -L -o ffmpeg.tar.xz https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz
-            tar xvf ffmpeg.tar.xz
-            cp ffmpeg-*-static/ffmpeg bin/
-            cp ffmpeg-*-static/ffprobe bin/
-            chmod +x bin/ffmpeg bin/ffprobe
-          elif [ "${{ runner.os }}" = "macOS" ]; then
-            curl -L -o ffmpeg.zip https://evermeet.cx/ffmpeg/getrelease/zip
-            unzip ffmpeg.zip -d bin/
-            curl -L -o ffprobe.zip https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip
-            unzip ffprobe.zip -d bin/
-            chmod +x bin/ffmpeg bin/ffprobe
-          elif [ "${{ runner.os }}" = "Windows" ]; then
-            curl -L -o ffmpeg.zip https://github.com/GyanD/codexffmpeg/releases/download/7.0.1/ffmpeg-7.0.1-essentials_build.zip
-            unzip ffmpeg.zip
-            cp ffmpeg-7.0.1-essentials_build/bin/ffmpeg.exe bin/
-            cp ffmpeg-7.0.1-essentials_build/bin/ffprobe.exe bin/
-          fi
-        shell: bash
-
       - name: Build Executable
-        run: |
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            pyinstaller --name ScriptCutter --windowed --add-binary "bin/*;bin" --onedir main.py
-          else
-            pyinstaller --name ScriptCutter --windowed --add-binary "bin/*:bin" --onedir main.py
-          fi
+        run: pyinstaller --name ScriptCutter --windowed --onedir main.py --exclude-module PySide6.QtWebEngineCore --exclude-module PySide6.QtWebEngineWidgets --exclude-module PySide6.QtNetwork --exclude-module PySide6.QtSql --exclude-module PySide6.QtQml --exclude-module PySide6.QtQuick --exclude-module PySide6.Qt3DCore --exclude-module PySide6.QtSensors --exclude-module PySide6.QtSerialPort --exclude-module PySide6.QtBluetooth --exclude-module tkinter --exclude-module unittest --exclude-module pydoc
         shell: bash
 
       - name: Package Windows and Linux
