@@ -1,9 +1,16 @@
-# ScriptCutter - Pro
+# MediaStudio Pro (formerly ScriptCutter)
 
-A powerful, efficient desktop application built with PySide6 and FFmpeg that automates the process of clipping videos based on text scripts. By matching your script against a subtitle file (SRT/VTT), the application automatically finds the precise boundaries for clips in a video. It also supports adding manual custom clips, previewing the cuts with an interactive timeline and waveform, and batch exporting everything seamlessly.
+A powerful, efficient desktop application built with PySide6 and FFmpeg that automates the process of clipping videos based on text scripts, as well as offering a complete advanced Video and Subtitle Downloading suite. By matching your script against a subtitle file (SRT/VTT), the application automatically finds the precise boundaries for clips in a video. It also supports downloading raw assets from YouTube, processing complex subtitle overlaps natively, and batch exporting everything seamlessly.
 
 ## ✨ Features
 
+### ⬇️ Advanced Downloader
+* **Integrated Video Downloader**: Full `yt-dlp` integration to download videos, playlists, or audio-only streams directly within the app.
+* **Concurrent Fragment Downloading**: Speed up video downloading by chunking files using configurable concurrent fragments.
+* **Advanced Subtitle Processing**: Download subtitles (auto-generated or manual), perfectly fix Arabic text overlapping and scrolling issues, and export them flawlessly as `.srt` or plain text (`.txt`).
+* **Settings Persistence**: Saves your output directories, download choices, and active options natively so you don't have to keep configuring the app.
+
+### ✂️ Automated Script Cutter
 * **Script-Based Automatic Clipping**: Paste segments of a script wrapped in `"""`, and the tool matches the text against imported subtitles to find exact start and end times automatically.
 * **Smart Arabic Text Matching**: Specialized logic for normalizing Arabic text (removing tashkeel, standardizing Alef, Yaa, Taa) to ensure bulletproof subtitle matching even with inconsistencies.
 * **Custom Manual Clips**: Add custom manual clips, set their bounds via a visual timeline, and organize them in a dedicated tab.
@@ -11,7 +18,6 @@ A powerful, efficient desktop application built with PySide6 and FFmpeg that aut
 * **Built-in Media Player**: Review cuts accurately with a synchronized video and audio player.
 * **Customizable Shortcuts**: Professional NLE (Non-Linear Editor) style JKL navigation. Nudge playhead, jump between clips, and snap bounds using configurable keyboard shortcuts. Also supports Undo/Redo (`Ctrl+Z` / `Cmd+Z`) for bound adjustments.
 * **Batch Export System**: Export all generated clips at once (video, audio, or both) using asynchronous background processing to keep the UI responsive.
-* **Persistent Settings System**: Save your output directories, customize shortcuts, choose export modes (Fastest vs. Re-encode), and more in a persistent configuration.
 
 ## 🚀 Prerequisites
 
@@ -52,6 +58,13 @@ python main.py
 
 ## 📖 How to Use
 
+### Downloader Workflow
+1. Navigate to the **⬇️ Downloader** tab.
+2. Paste any YouTube link (or multiple separated by commas).
+3. Select your desired Quality, Subtitles, and enable "Fix Subtitle Overlap" to get pristine text output.
+4. Click **Start Download**.
+
+### Cutter Workflow
 1. **Load Media**: Click **🎬 Import Video** and select your source video file (.mp4, .mkv, .mov). The app will automatically generate and display an audio waveform in the timeline.
 2. **Load Subtitles**: In the **Script Clips** tab, click **📝 Import Subtitles** to load the `.srt` or `.vtt` file corresponding to your video.
 3. **Add Script**: In the **Script Importer** text area, paste your script segments. Wrap each distinct clip you want to extract in triple quotes. For example:

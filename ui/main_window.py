@@ -15,6 +15,7 @@ from ui.timeline_widget import TimelineWidget
 from core.matcher import find_precise_clip_boundaries
 from core.media_engine import generate_waveform_data
 from core.exporter import export_clip 
+from ui.downloader_widget import DownloaderWidget
 
 # --- NEW: Custom Video Widget that detects Right-Clicks ---
 class ClickableVideoWidget(QVideoWidget):
@@ -36,7 +37,7 @@ class WaveformWorker(QThread):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("ScriptCutter - Pro")
+        self.setWindowTitle("MediaStudio Pro")
         self.resize(1200, 800) 
         self.app_settings = load_settings()
         
@@ -54,7 +55,20 @@ class MainWindow(QMainWindow):
         
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        main_layout = QVBoxLayout(central_widget)
+        
+        self.main_tabs = QTabWidget(central_widget)
+        root_layout = QVBoxLayout(central_widget)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.addWidget(self.main_tabs)
+        
+        # --- TAB 1: Cutter ---
+        self.cutter_tab = QWidget()
+        self.main_tabs.addTab(self.cutter_tab, "✂️ Cutter")
+        main_layout = QVBoxLayout(self.cutter_tab)
+
+        # --- TAB 2: Downloader ---
+        self.downloader_tab = DownloaderWidget()
+        self.main_tabs.addTab(self.downloader_tab, "⬇️ Downloader")
 
         # --- Top Menu / Action Bar ---
         action_bar = QHBoxLayout()
