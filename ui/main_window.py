@@ -191,6 +191,7 @@ class MainWindow(QMainWindow):
         self.audio_output.setVolume(1.0)
         
         self.sync_timer = QTimer(self)
+        self.sync_timer.setTimerType(Qt.PreciseTimer)
         self.sync_timer.timeout.connect(self.sync_playhead_to_audio)
         
         self.setup_shortcuts()

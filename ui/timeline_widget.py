@@ -2,6 +2,19 @@ from PySide6.QtWidgets import QWidget, QVBoxLayout
 from PySide6.QtCore import Qt, Signal
 import pyqtgraph as pg
 
+# Enable anti-aliasing globally for crisp waveform rendering on high-DPI displays (Mac Retina)
+pg.setConfigOptions(antialias=True)
+
+class MacSmoothPlotWidget(pg.PlotWidget):
+    def wheelEvent(self, ev):
+        import platform
+        if platform.system() == "Darwin":
+            # Trackpads on Mac send very high-resolution scroll events that cause chaotic zooming in pyqtgraph.
+            # We ignore wheel events to prevent this. Users can use 'Fit to Screen' and 'Focus on Clip' buttons.
+            ev.ignore()
+        else:
+            super().wheelEvent(ev)
+
 class PlayheadLine(pg.InfiniteLine):
     def hoverEvent(self, ev):
         view = self.getViewBox()
@@ -70,7 +83,7 @@ class TimelineWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         
-        self.plot = pg.PlotWidget()
+        self.plot = MacSmoothPlotWidget()
         self.plot.setBackground('#2b2b2b')
         self.plot.showGrid(x=True, y=False, alpha=0.3)
         self.plot.setMouseEnabled(x=True, y=False)

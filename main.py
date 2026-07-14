@@ -1,8 +1,12 @@
 import sys
+import os
 from PySide6.QtWidgets import QApplication
 from ui.main_window import MainWindow
 
 def main():
+    # Force FFmpeg backend on macOS for robust video decoding
+    os.environ["QT_MEDIA_BACKEND"] = "ffmpeg"
+    
     # 1. Create the Qt Application
     app = QApplication(sys.argv)
     
