@@ -3,6 +3,58 @@ import subprocess
 import requests
 import glob
 
+import platform
+import stat
+
+def get_yt_dlp_executable_path():
+    """Returns the expected path to the standalone yt-dlp binary."""
+    app_data_dir = os.path.expanduser("~/.scriptcutter/bin")
+    os.makedirs(app_data_dir, exist_ok=True)
+    
+    if platform.system() == "Windows":
+        return os.path.join(app_data_dir, "yt-dlp.exe")
+    else:
+        return os.path.join(app_data_dir, "yt-dlp")
+
+def download_yt_dlp_binary(progress_callback=None):
+    """Downloads the standalone yt-dlp binary if it doesn't exist."""
+    binary_path = get_yt_dlp_executable_path()
+        
+    system = platform.system()
+    if system == "Windows":
+        url = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
+    elif system == "Darwin":
+        url = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos"
+    else:
+        url = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
+
+    try:
+        response = requests.get(url, stream=True, timeout=30)
+        response.raise_for_status()
+        total_length = response.headers.get('content-length')
+        
+        with open(binary_path, 'wb') as f:
+            if total_length is None: # no content length header
+                f.write(response.content)
+            else:
+                dl = 0
+                total_length = int(total_length)
+                for data in response.iter_content(chunk_size=8192):
+                    dl += len(data)
+                    f.write(data)
+                    if progress_callback:
+                        progress_callback(dl, total_length)
+                        
+        # Make executable
+        st = os.stat(binary_path)
+        os.chmod(binary_path, st.st_mode | stat.S_IEXEC)
+        return binary_path
+    except Exception as e:
+        print(f"Failed to download yt-dlp binary: {e}")
+        if os.path.exists(binary_path):
+            os.remove(binary_path)
+        return None
+
 def get_latest_yt_dlp_version():
     """Fetches the latest yt-dlp version from PyPI."""
     try:
@@ -16,19 +68,25 @@ def get_latest_yt_dlp_version():
 
 def get_local_yt_dlp_version():
     """Runs yt-dlp --version to get the local version."""
-    try:
-        result = subprocess.run(["yt-dlp", "--version"], capture_output=True, text=True, check=True)
-        return result.stdout.strip()
-    except FileNotFoundError:
+    binary_path = get_yt_dlp_executable_path()
+    if not os.path.exists(binary_path):
         return None
+        
+    try:
+        result = subprocess.run([binary_path, "--version"], capture_output=True, text=True, check=True)
+        return result.stdout.strip()
     except Exception as e:
         print(f"Error getting local yt-dlp version: {e}")
         return None
 
 def update_yt_dlp():
-    """Updates yt-dlp via pip."""
+    """Updates yt-dlp using its self-updater."""
+    binary_path = get_yt_dlp_executable_path()
+    if not os.path.exists(binary_path):
+        download_yt_dlp_binary()
+        return True
     try:
-        subprocess.run(["pip", "install", "-U", "yt-dlp"], check=True)
+        subprocess.run([binary_path, "-U"], check=True)
         return True
     except Exception as e:
         print(f"Failed to update yt-dlp: {e}")

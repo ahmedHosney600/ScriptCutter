@@ -6,12 +6,21 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTextEdit,
                                QComboBox, QSpinBox, QListWidget, QListWidgetItem,
                                QDialog, QProgressBar)
 from PySide6.QtCore import Qt, QProcess, QTimer, QSettings, QThread, Signal, QProcessEnvironment
-from core.yt_dlp_manager import get_latest_yt_dlp_version, get_local_yt_dlp_version, update_yt_dlp, remove_id_from_filenames, fix_vtt_overlap_in_directory, export_subtitles_to_text
+from core.yt_dlp_manager import get_latest_yt_dlp_version, get_local_yt_dlp_version, update_yt_dlp, remove_id_from_filenames, fix_vtt_overlap_in_directory, export_subtitles_to_text, get_yt_dlp_executable_path, download_yt_dlp_binary
 
 class UpdateCheckWorker(QThread):
     finished = Signal(bool, str)
+    download_progress = Signal(int, int)
+    download_started = Signal()
     
     def run(self):
+        binary_path = get_yt_dlp_executable_path()
+        if not os.path.exists(binary_path):
+            self.download_started.emit()
+            download_yt_dlp_binary(self._progress_callback)
+            self.finished.emit(False, "yt-dlp downloaded successfully.")
+            return
+
         local_v = get_local_yt_dlp_version()
         latest_v = get_latest_yt_dlp_version()
         
@@ -33,6 +42,9 @@ class UpdateCheckWorker(QThread):
                 msg = f"Update available: {local_v} -> {latest_v}"
                 
         self.finished.emit(needs_update, msg)
+        
+    def _progress_callback(self, dl, total):
+        self.download_progress.emit(dl, total)
 
 class UpdateDialog(QDialog):
     def __init__(self, parent=None):
@@ -117,6 +129,11 @@ class DownloaderWidget(QWidget):
         self.spin_concurrent.valueChanged.connect(self.update_command_preview)
         concurrent_layout.addWidget(self.spin_concurrent)
         settings_layout.addLayout(concurrent_layout)
+
+        # Update yt-dlp Button
+        self.update_btn = QPushButton("🔄 Check for yt-dlp Update")
+        self.update_btn.clicked.connect(self.manual_check_updates)
+        settings_layout.addWidget(self.update_btn)
 
         # Playlist Checkbox
         self.chk_playlist = QCheckBox("Download as Playlist (--yes-playlist)")
@@ -341,38 +358,69 @@ class DownloaderWidget(QWidget):
             self.dir_label.setText(f"Save: {self.output_dir}")
             self.update_command_preview()
 
+    def manual_check_updates(self):
+        if hasattr(self, 'update_checker') and self.update_checker.isRunning():
+            QMessageBox.information(self, "Checking", "Already checking for updates...")
+            return
+            
+        self.term_output.append(">>> Checking for yt-dlp updates manually...\n")
+        self.check_for_updates()
+
     def check_for_updates(self):
         self.update_checker = UpdateCheckWorker()
+        self.update_checker.download_started.connect(self.on_download_started)
+        self.update_checker.download_progress.connect(self.on_download_progress)
         self.update_checker.finished.connect(self.on_check_finished)
         self.update_checker.start()
 
-    def on_check_finished(self, needs_update, msg):
-        self.term_output.append(f">>> {msg}\n")
-        if needs_update:
-            self.run_pip_update()
-        else:
-            self.show_only_terminal(False)
-            self.run_btn.setEnabled(True)
-
-    def run_pip_update(self):
+    def on_download_started(self):
         self.show_only_terminal(True)
         self.run_btn.setEnabled(False)
         self.stop_btn.setEnabled(False)
         
         self.update_dialog = UpdateDialog(self)
+        self.update_dialog.label.setText("Downloading standalone yt-dlp executable...")
+        self.update_dialog.show()
+
+    def on_download_progress(self, dl, total):
+        if hasattr(self, 'update_dialog'):
+            self.update_dialog.progress.setRange(0, total)
+            self.update_dialog.progress.setValue(dl)
+
+    def on_check_finished(self, needs_update, msg):
+        if msg == "yt-dlp downloaded successfully." and hasattr(self, 'update_dialog'):
+            self.update_dialog.accept()
+            self.term_output.append(f">>> {msg}\n")
+            self.show_only_terminal(False)
+            self.run_btn.setEnabled(True)
+            self.update_command_preview()
+            return
+
+        self.term_output.append(f">>> {msg}\n")
+        if needs_update:
+            self.run_binary_update()
+        else:
+            self.show_only_terminal(False)
+            self.run_btn.setEnabled(True)
+
+    def run_binary_update(self):
+        self.show_only_terminal(True)
+        self.run_btn.setEnabled(False)
+        self.stop_btn.setEnabled(False)
+        
+        self.update_dialog = UpdateDialog(self)
+        self.update_dialog.label.setText("Updating yt-dlp executable...")
         self.update_dialog.show()
         
-        self.term_output.append(">>> Installing/Updating yt-dlp via pip...\n")
+        self.term_output.append(">>> Updating yt-dlp...\n")
         self.process = QProcess()
-        
-        env = QProcessEnvironment.systemEnvironment()
-        env.insert("PYTHONUNBUFFERED", "1")
-        self.process.setProcessEnvironment(env)
         
         self.process.readyReadStandardOutput.connect(self.handle_stdout)
         self.process.readyReadStandardError.connect(self.handle_stderr)
         self.process.finished.connect(self.on_update_finished)
-        self.process.start("pip", ["install", "-U", "yt-dlp"])
+        
+        binary_path = get_yt_dlp_executable_path()
+        self.process.start(binary_path, ["-U"])
 
     def on_update_finished(self, exit_code, exit_status):
         if hasattr(self, 'update_dialog'):
@@ -415,7 +463,8 @@ class DownloaderWidget(QWidget):
             self.chk_playlist.setChecked(True)
             self.chk_playlist.blockSignals(False)
             
-        cmd = ["yt-dlp"]
+        binary_path = get_yt_dlp_executable_path()
+        cmd = [f'"{binary_path}"']
         
         # Paths
         cmd.append(f'-P "{self.output_dir}"')
@@ -477,7 +526,8 @@ class DownloaderWidget(QWidget):
             return
             
         cmd_string = self.cmd_preview.text().strip()
-        if not cmd_string or cmd_string == "yt-dlp":
+        binary_path = get_yt_dlp_executable_path()
+        if not cmd_string or cmd_string == f'"{binary_path}"':
             QMessageBox.warning(self, "No Links", "Please add some YouTube links first.")
             return
 

@@ -1,6 +1,5 @@
 PySide6
 pyqtgraph
 pyinstaller
-yt-dlp
 requests
 pysubs2
