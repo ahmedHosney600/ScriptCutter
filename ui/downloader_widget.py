@@ -152,11 +152,11 @@ class DownloaderWidget(QWidget):
         quality_layout.addWidget(QLabel("Quality:"))
         self.combo_quality = QComboBox()
         self.combo_quality.addItems([
-            "bestvideo+bestaudio/best (Best Available)",
-            "bestvideo[height<=1080]+bestaudio/best[height<=1080] (1080p Best)",
-            "bestvideo[height<=2160]+bestaudio/best[height<=2160] (4K Best)",
-            "bestvideo[height<=720]+bestaudio/best[height<=720] (720p)",
-            "bestvideo[height<=480]+bestaudio/best[height<=480] (480p)",
+            "bestvideo[vcodec!=av01]+bestaudio/best (Best Available)",
+            "bestvideo[height<=1080][vcodec!=av01]+bestaudio/best[height<=1080] (1080p Best)",
+            "bestvideo[height<=2160][vcodec!=av01]+bestaudio/best[height<=2160] (4K Best)",
+            "bestvideo[height<=720][vcodec!=av01]+bestaudio/best[height<=720] (720p)",
+            "bestvideo[height<=480][vcodec!=av01]+bestaudio/best[height<=480] (480p)",
             "bestaudio/best (Audio Only)"
         ])
         self.combo_quality.currentIndexChanged.connect(self.update_command_preview)

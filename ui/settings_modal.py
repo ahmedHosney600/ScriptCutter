@@ -98,6 +98,7 @@ class SettingsModal(QDialog):
             "sc_snap_end": "Snap Playhead to End",
             "sc_preview_cut": "Preview Cut (In to Out)",
             "sc_review_cut": "Review Cut (with Preroll)",
+            "sc_play_to_out": "Play to Out Mark",
             "sc_nudge_start_left": "Nudge Start Left",
             "sc_nudge_start_right": "Nudge Start Right",
             "sc_nudge_end_left": "Nudge End Left",

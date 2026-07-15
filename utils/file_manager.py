@@ -24,6 +24,7 @@ DEFAULT_SETTINGS = {
     "sc_snap_end": "Shift+O",
     "sc_preview_cut": "Alt+Space",
     "sc_review_cut": "Shift+Space",
+    "sc_play_to_out": "Ctrl+Space",
     
     "sc_nudge_start_left": "Alt+Left",
     "sc_nudge_start_right": "Alt+Right",

@@ -2,11 +2,13 @@ import sys
 import os
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                                QSplitter, QTextEdit, QPushButton, QLabel, QListWidget,
-                               QFileDialog, QMessageBox, QTabWidget, QInputDialog)
+                               QFileDialog, QMessageBox, QTabWidget, QInputDialog,
+                               QApplication, QLineEdit, QPlainTextEdit)
 from PySide6.QtCore import Qt, QTimer, QUrl, QThread, Signal
 from PySide6.QtGui import QKeySequence, QShortcut, QColor, QTextCharFormat, QTextCursor
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PySide6.QtMultimediaWidgets import QVideoWidget
+from PySide6.QtCore import QEvent, QObject
 
 from core.parser import parse_script, parse_script_with_spans
 from ui.settings_modal import SettingsModal
@@ -16,6 +18,20 @@ from core.matcher import find_precise_clip_boundaries
 from core.media_engine import generate_waveform_data, has_video_stream
 from core.exporter import export_clip 
 from ui.downloader_widget import DownloaderWidget
+
+class TextEditorShortcutFilter(QObject):
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.ShortcutOverride:
+            from PySide6.QtWidgets import QTextEdit, QLineEdit, QPlainTextEdit
+            # Some widgets have inner viewports that receive the event
+            target = obj
+            if hasattr(obj, 'parent') and obj.parent() is not None and isinstance(obj.parent(), (QTextEdit, QPlainTextEdit)):
+                target = obj.parent()
+                
+            if isinstance(target, (QTextEdit, QLineEdit, QPlainTextEdit)):
+                event.accept()
+                return True
+        return False
 
 # --- NEW: Custom Video Widget that detects Right-Clicks ---
 class ClickableVideoWidget(QVideoWidget):
@@ -38,8 +54,12 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("MediaStudio Pro")
-        self.resize(1200, 800) 
+        self.resize(1200, 800)
         self.app_settings = load_settings()
+        
+        # Install global event filter to prevent shortcuts from stealing text editor keys
+        self.shortcut_filter = TextEditorShortcutFilter()
+        QApplication.instance().installEventFilter(self.shortcut_filter)
         
         self.current_video_path = None
         self.current_subtitles = []
@@ -325,6 +345,18 @@ class MainWindow(QMainWindow):
 
     def process_script(self):
         raw_text = self.script_input.toPlainText()
+        
+        # Build mapping of old script clips to bounds before overwriting last_generated_text
+        old_clips_with_spans = parse_script_with_spans(self.last_generated_text)
+        old_text_to_bounds = {}
+        for i, (clip_text, _, _) in enumerate(old_clips_with_spans):
+            old_full_clean_text = clip_text.replace('\n', ' ').strip()
+            old_clip_id = f"script_{i}"
+            if old_clip_id in self.clip_bounds_cache:
+                if old_full_clean_text not in old_text_to_bounds:
+                    old_text_to_bounds[old_full_clean_text] = []
+                old_text_to_bounds[old_full_clean_text].append(self.clip_bounds_cache[old_clip_id])
+                
         self.last_generated_text = raw_text
         self.check_script_changes()
         
@@ -346,7 +378,12 @@ class MainWindow(QMainWindow):
             for i, (clip_text, span_start, span_end) in enumerate(clips_with_spans):
                 # Calculate bounds using the FULL text, before we truncate it for UI display!
                 full_clean_text = clip_text.replace('\n', ' ').strip()
-                start_time, end_time = find_precise_clip_boundaries(full_clean_text, self.current_subtitles)
+                
+                if old_text_to_bounds.get(full_clean_text):
+                    bounds = old_text_to_bounds[full_clean_text].pop(0)
+                    start_time, end_time = bounds["start"], bounds["end"]
+                else:
+                    start_time, end_time = find_precise_clip_boundaries(full_clean_text, self.current_subtitles)
                 
                 # Pre-populate the cache so load_clip_to_timeline doesn't have to guess
                 clip_id = f"script_{i}"
@@ -499,6 +536,7 @@ class MainWindow(QMainWindow):
     # ==========================================
     # SHORTCUTS & AUDIO SYNC
     # ==========================================
+    
     def setup_shortcuts(self):
         sc_forward = self.app_settings.get("sc_play_forward", "L")
         sc_backward = self.app_settings.get("sc_play_backward", "J")
@@ -511,6 +549,7 @@ class MainWindow(QMainWindow):
         
         sc_preview_cut = self.app_settings.get("sc_preview_cut", "Alt+Space")
         sc_review_cut = self.app_settings.get("sc_review_cut", "Shift+Space")
+        sc_play_to_out = self.app_settings.get("sc_play_to_out", "Ctrl+Space")
         
         QShortcut(QKeySequence(sc_forward), self).activated.connect(self.play_forward)
         QShortcut(QKeySequence(sc_stop), self).activated.connect(self.stop_playback)
@@ -523,6 +562,7 @@ class MainWindow(QMainWindow):
 
         QShortcut(QKeySequence(sc_preview_cut), self).activated.connect(self.play_in_to_out)
         QShortcut(QKeySequence(sc_review_cut), self).activated.connect(self.play_review_cut)
+        QShortcut(QKeySequence(sc_play_to_out), self).activated.connect(self.play_to_out)
         
         self.nudge_short = float(self.app_settings.get("nudge_short", 0.1))
         self.nudge_med = float(self.app_settings.get("nudge_med", 1.0))
@@ -681,6 +721,11 @@ class MainWindow(QMainWindow):
         review_duration = float(self.app_settings.get("review_duration", 2.0))
         review_start = max(0, self.timeline_view.start_line.value() - review_duration)
         self.timeline_view.playhead.setValue(review_start)
+        self.play_forward()
+        
+    def play_to_out(self):
+        # Starts from the CURRENT playhead position and plays until the OUT mark (preview_mode)
+        self.preview_mode = True
         self.play_forward()
 
     # ==========================================
