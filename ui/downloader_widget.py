@@ -372,7 +372,7 @@ class DownloaderWidget(QWidget):
         self.process.readyReadStandardOutput.connect(self.handle_stdout)
         self.process.readyReadStandardError.connect(self.handle_stderr)
         self.process.finished.connect(self.on_update_finished)
-        self.process.start(sys.executable, ["-m", "pip", "install", "-U", "yt-dlp"])
+        self.process.start("pip", ["install", "-U", "yt-dlp"])
 
     def on_update_finished(self, exit_code, exit_status):
         if hasattr(self, 'update_dialog'):
