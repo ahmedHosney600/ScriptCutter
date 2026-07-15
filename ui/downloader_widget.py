@@ -1,10 +1,62 @@
 import os
+import sys
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTextEdit, 
                                QPushButton, QLabel, QCheckBox, QFileDialog, 
                                QMessageBox, QGroupBox, QLineEdit, QSplitter,
-                               QComboBox, QSpinBox, QListWidget, QListWidgetItem)
-from PySide6.QtCore import Qt, QProcess, QTimer, QSettings
+                               QComboBox, QSpinBox, QListWidget, QListWidgetItem,
+                               QDialog, QProgressBar)
+from PySide6.QtCore import Qt, QProcess, QTimer, QSettings, QThread, Signal, QProcessEnvironment
 from core.yt_dlp_manager import get_latest_yt_dlp_version, get_local_yt_dlp_version, update_yt_dlp, remove_id_from_filenames, fix_vtt_overlap_in_directory, export_subtitles_to_text
+
+class UpdateCheckWorker(QThread):
+    finished = Signal(bool, str)
+    
+    def run(self):
+        local_v = get_local_yt_dlp_version()
+        latest_v = get_latest_yt_dlp_version()
+        
+        needs_update = False
+        msg = "yt-dlp is up to date."
+        
+        if not local_v:
+            needs_update = True
+            msg = "yt-dlp is not installed. Needs installation."
+        elif latest_v:
+            def norm_ver(v):
+                try:
+                    return ".".join(str(int(x)) for x in v.split("."))
+                except ValueError:
+                    return v
+
+            if norm_ver(local_v) != norm_ver(latest_v):
+                needs_update = True
+                msg = f"Update available: {local_v} -> {latest_v}"
+                
+        self.finished.emit(needs_update, msg)
+
+class UpdateDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Installing/Updating yt-dlp")
+        self.setFixedSize(500, 300)
+        self.setModal(True)
+        
+        layout = QVBoxLayout(self)
+        self.label = QLabel("Please wait while yt-dlp is installed or updated...")
+        layout.addWidget(self.label)
+        
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 0)
+        layout.addWidget(self.progress)
+        
+        self.text_edit = QTextEdit()
+        self.text_edit.setReadOnly(True)
+        self.text_edit.setStyleSheet("background-color: #1e1e1e; color: #00ff00; font-family: monospace;")
+        layout.addWidget(self.text_edit)
+        
+    def append_text(self, text):
+        self.text_edit.insertPlainText(text)
+        self.text_edit.ensureCursorVisible()
 
 class DownloaderWidget(QWidget):
     def __init__(self, parent=None):
@@ -290,27 +342,15 @@ class DownloaderWidget(QWidget):
             self.update_command_preview()
 
     def check_for_updates(self):
-        local_v = get_local_yt_dlp_version()
-        latest_v = get_latest_yt_dlp_version()
-        
-        needs_update = False
-        if not local_v:
-            needs_update = True
-        elif latest_v:
-            def norm_ver(v):
-                # Converts '2026.07.04' to '2026.7.4' to match PyPI
-                try:
-                    return ".".join(str(int(x)) for x in v.split("."))
-                except ValueError:
-                    return v
+        self.update_checker = UpdateCheckWorker()
+        self.update_checker.finished.connect(self.on_check_finished)
+        self.update_checker.start()
 
-            if norm_ver(local_v) != norm_ver(latest_v):
-                needs_update = True
-                
+    def on_check_finished(self, needs_update, msg):
+        self.term_output.append(f">>> {msg}\n")
         if needs_update:
             self.run_pip_update()
         else:
-            self.term_output.append(">>> yt-dlp is up to date.\n")
             self.show_only_terminal(False)
             self.run_btn.setEnabled(True)
 
@@ -318,14 +358,26 @@ class DownloaderWidget(QWidget):
         self.show_only_terminal(True)
         self.run_btn.setEnabled(False)
         self.stop_btn.setEnabled(False)
+        
+        self.update_dialog = UpdateDialog(self)
+        self.update_dialog.show()
+        
         self.term_output.append(">>> Installing/Updating yt-dlp via pip...\n")
         self.process = QProcess()
+        
+        env = QProcessEnvironment.systemEnvironment()
+        env.insert("PYTHONUNBUFFERED", "1")
+        self.process.setProcessEnvironment(env)
+        
         self.process.readyReadStandardOutput.connect(self.handle_stdout)
         self.process.readyReadStandardError.connect(self.handle_stderr)
         self.process.finished.connect(self.on_update_finished)
-        self.process.start("pip", ["install", "-U", "yt-dlp"])
+        self.process.start(sys.executable, ["-m", "pip", "install", "-U", "yt-dlp"])
 
     def on_update_finished(self, exit_code, exit_status):
+        if hasattr(self, 'update_dialog'):
+            self.update_dialog.accept()
+            
         self.term_output.append(">>> Update finished.\n")
         self.show_only_terminal(False)
         self.run_btn.setEnabled(True)
@@ -451,11 +503,15 @@ class DownloaderWidget(QWidget):
         data = self.process.readAllStandardOutput().data().decode('utf-8', errors='replace')
         self.term_output.insertPlainText(data)
         self.term_output.ensureCursorVisible()
+        if hasattr(self, 'update_dialog') and self.update_dialog.isVisible():
+            self.update_dialog.append_text(data)
 
     def handle_stderr(self):
         data = self.process.readAllStandardError().data().decode('utf-8', errors='replace')
         self.term_output.insertPlainText(data)
         self.term_output.ensureCursorVisible()
+        if hasattr(self, 'update_dialog') and self.update_dialog.isVisible():
+            self.update_dialog.append_text(data)
 
     def stop_download(self):
         if self.process and self.process.state() == QProcess.Running:
